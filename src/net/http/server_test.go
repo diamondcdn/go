@@ -18,18 +18,28 @@ func TestServerTLSHandshakeTimeout(t *testing.T) {
 		want time.Duration
 	}{
 		{
-			s:    &Server{},
+			s: &Server{
+				ErrorFunc: func(ip string, err string) {
+					fmt.Printf("IP address %s, err %s", ip, err)
+				},
+			},
 			want: 0,
 		},
 		{
 			s: &Server{
 				ReadTimeout: -1,
+				ErrorFunc: func(ip string, err string) {
+					fmt.Printf("IP address %s, err %s", ip, err)
+				},
 			},
 			want: 0,
 		},
 		{
 			s: &Server{
 				ReadTimeout: 5 * time.Second,
+				ErrorFunc: func(ip string, err string) {
+					fmt.Printf("IP address %s, err %s", ip, err)
+				},
 			},
 			want: 5 * time.Second,
 		},
@@ -37,6 +47,9 @@ func TestServerTLSHandshakeTimeout(t *testing.T) {
 			s: &Server{
 				ReadTimeout:  5 * time.Second,
 				WriteTimeout: -1,
+				ErrorFunc: func(ip string, err string) {
+					fmt.Printf("IP address %s, err %s", ip, err)
+				},
 			},
 			want: 5 * time.Second,
 		},
@@ -44,6 +57,9 @@ func TestServerTLSHandshakeTimeout(t *testing.T) {
 			s: &Server{
 				ReadTimeout:  5 * time.Second,
 				WriteTimeout: 4 * time.Second,
+				ErrorFunc: func(ip string, err string) {
+					fmt.Printf("IP address %s, err %s", ip, err)
+				},
 			},
 			want: 4 * time.Second,
 		},
@@ -52,6 +68,9 @@ func TestServerTLSHandshakeTimeout(t *testing.T) {
 				ReadTimeout:       5 * time.Second,
 				ReadHeaderTimeout: 2 * time.Second,
 				WriteTimeout:      4 * time.Second,
+				ErrorFunc: func(ip string, err string) {
+					fmt.Printf("IP address %s, err %s", ip, err)
+				},
 			},
 			want: 2 * time.Second,
 		},
