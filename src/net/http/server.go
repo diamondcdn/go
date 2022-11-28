@@ -1849,6 +1849,10 @@ func (c *conn) serve(ctx context.Context) {
 	var inFlightResponse *response
 	defer func() {
 		if err := recover(); err != nil && err != ErrAbortHandler {
+			const size = 64 << 10
+			buf := make([]byte, size)
+			buf = buf[:runtime.Stack(buf, false)]
+			c.server.logf("http: panic serving %v: %v\n%s", c.remoteAddr, err, buf)
 			c.server.errf(c.remoteAddr, fmt.Sprintf("%v", err))
 		}
 		if inFlightResponse != nil {
@@ -1880,6 +1884,7 @@ func (c *conn) serve(ctx context.Context) {
 				re.Conn.Close()
 				return
 			}
+			c.server.logf("http: TLS handshake error from %s: %v", c.rwc.RemoteAddr(), err)
 			c.server.errf(c.remoteAddr, fmt.Sprintf("%v", err))
 			return
 		}
