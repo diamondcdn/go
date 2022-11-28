@@ -1849,7 +1849,7 @@ func (c *conn) serve(ctx context.Context) {
 	var inFlightResponse *response
 	defer func() {
 		if err := recover(); err != nil && err != ErrAbortHandler {
-			c.server.ErrorFunc(c.remoteAddr, fmt.Sprintf("%v", err))
+			c.server.errf(c.remoteAddr, fmt.Sprintf("%v", err))
 		}
 		if inFlightResponse != nil {
 			inFlightResponse.cancelCtx()
@@ -1880,7 +1880,7 @@ func (c *conn) serve(ctx context.Context) {
 				re.Conn.Close()
 				return
 			}
-			c.server.ErrorFunc(c.remoteAddr, fmt.Sprintf("%v", err))
+			c.server.errf(c.remoteAddr, fmt.Sprintf("%v", err))
 			return
 		}
 		// Restore Conn-level deadlines.
@@ -3220,6 +3220,14 @@ func (s *Server) logf(format string, args ...any) {
 		s.ErrorLog.Printf(format, args...)
 	} else {
 		log.Printf(format, args...)
+	}
+}
+
+func (s *Server) errf(ip string, err string) {
+	if s.ErrorFunc != nil {
+		s.ErrorFunc(ip, err)
+	} else {
+		log.Printf("ip: %s, err %s\n", ip, err)
 	}
 }
 
