@@ -1,3 +1,7 @@
+# DiamondCDN fork of Golang
+## Why have we done this?
+To change some configurations in net/http for our use case.
+
 # The Go Programming Language
 
 Go is an open source programming language that makes it easy to build simple,

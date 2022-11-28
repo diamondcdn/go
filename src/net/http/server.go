@@ -1849,10 +1849,7 @@ func (c *conn) serve(ctx context.Context) {
 	var inFlightResponse *response
 	defer func() {
 		if err := recover(); err != nil && err != ErrAbortHandler {
-			const size = 64 << 10
-			buf := make([]byte, size)
-			buf = buf[:runtime.Stack(buf, false)]
-			c.server.logf("http: panic serving %v: %v\n%s", c.remoteAddr, err, buf)
+			c.server.ErrorFunc(c.remoteAddr, fmt.Sprintf("%v", err))
 		}
 		if inFlightResponse != nil {
 			inFlightResponse.cancelCtx()
@@ -1883,7 +1880,7 @@ func (c *conn) serve(ctx context.Context) {
 				re.Conn.Close()
 				return
 			}
-			c.server.logf("http: TLS handshake error from %s: %v", c.rwc.RemoteAddr(), err)
+			c.server.ErrorFunc(c.remoteAddr, fmt.Sprintf("%v", err))
 			return
 		}
 		// Restore Conn-level deadlines.
@@ -2676,6 +2673,14 @@ type Server struct {
 	// ConnState type and associated constants for details.
 	ConnState func(net.Conn, ConnState)
 
+	// ErrorLog has been moved from a logger to a function. This
+	// is so we can see what error there is, and what source it
+	// originates from. First string is the remote address, second string
+	// is the error. Handle errors how you want to!
+	// Couldn't use *conn because it's not exported. IP will do!
+	ErrorFunc func(string, string)
+
+	// KEEPING ErrorLog for compatibility!
 	// ErrorLog specifies an optional logger for errors accepting
 	// connections, unexpected behavior from handlers, and
 	// underlying FileSystem errors.
