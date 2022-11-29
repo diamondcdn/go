@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package api
+package main
 
 import (
 	"flag"
@@ -16,8 +16,6 @@ import (
 	"sync"
 	"testing"
 )
-
-var flagCheck = flag.Bool("check", false, "run API checks")
 
 func TestMain(m *testing.M) {
 	if !testenv.HasExec() {
@@ -42,7 +40,7 @@ func TestMain(m *testing.M) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_ = NewWalker(context, filepath.Join(testenv.GOROOT(nil), "src"))
+			_ = NewWalker(context, filepath.Join(build.Default.GOROOT, "src"))
 		}()
 	}
 	wg.Wait()
@@ -55,10 +53,6 @@ var (
 )
 
 func TestGolden(t *testing.T) {
-	if *flagCheck {
-		// slow, not worth repeating in -check
-		t.Skip("skipping with -check set")
-	}
 	td, err := os.Open("testdata/src/pkg")
 	if err != nil {
 		t.Fatal(err)
@@ -200,7 +194,7 @@ func TestSkipInternal(t *testing.T) {
 func BenchmarkAll(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		for _, context := range contexts {
-			w := NewWalker(context, filepath.Join(testenv.GOROOT(b), "src"))
+			w := NewWalker(context, filepath.Join(build.Default.GOROOT, "src"))
 			for _, name := range w.stdPackages {
 				pkg, _ := w.Import(name)
 				w.export(pkg)
@@ -211,10 +205,6 @@ func BenchmarkAll(b *testing.B) {
 }
 
 func TestIssue21181(t *testing.T) {
-	if *flagCheck {
-		// slow, not worth repeating in -check
-		t.Skip("skipping with -check set")
-	}
 	for _, context := range contexts {
 		w := NewWalker(context, "testdata/src/issue21181")
 		pkg, err := w.Import("p")
@@ -227,10 +217,6 @@ func TestIssue21181(t *testing.T) {
 }
 
 func TestIssue29837(t *testing.T) {
-	if *flagCheck {
-		// slow, not worth repeating in -check
-		t.Skip("skipping with -check set")
-	}
 	for _, context := range contexts {
 		w := NewWalker(context, "testdata/src/issue29837")
 		_, err := w.Import("p")
@@ -241,13 +227,9 @@ func TestIssue29837(t *testing.T) {
 }
 
 func TestIssue41358(t *testing.T) {
-	if *flagCheck {
-		// slow, not worth repeating in -check
-		t.Skip("skipping with -check set")
-	}
 	context := new(build.Context)
 	*context = build.Default
-	context.Dir = filepath.Join(testenv.GOROOT(t), "src")
+	context.Dir = filepath.Join(context.GOROOT, "src")
 
 	w := NewWalker(context, context.Dir)
 	for _, pkg := range w.stdPackages {
@@ -255,11 +237,4 @@ func TestIssue41358(t *testing.T) {
 			t.Fatalf("stdPackages contains unexpected package %s", pkg)
 		}
 	}
-}
-
-func TestCheck(t *testing.T) {
-	if !*flagCheck {
-		t.Skip("-check not specified")
-	}
-	Check(t)
 }

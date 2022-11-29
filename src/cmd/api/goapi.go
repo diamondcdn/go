@@ -2,9 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Package api computes the exported API of a set of Go packages.
-// It is only a test, not a command, nor a usefully importable package.
-package api
+// Api computes the exported API of a set of Go packages.
+package main
 
 import (
 	"bufio"
@@ -17,7 +16,6 @@ import (
 	"go/parser"
 	"go/token"
 	"go/types"
-	"internal/testenv"
 	"io"
 	"log"
 	"os"
@@ -29,22 +27,32 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"testing"
 )
-
-const verbose = false
 
 func goCmd() string {
 	var exeSuffix string
 	if runtime.GOOS == "windows" {
 		exeSuffix = ".exe"
 	}
-	path := filepath.Join(testenv.GOROOT(nil), "bin", "go"+exeSuffix)
-	if _, err := os.Stat(path); err == nil {
-		return path
+	if goroot := build.Default.GOROOT; goroot != "" {
+		path := filepath.Join(goroot, "bin", "go"+exeSuffix)
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
 	}
 	return "go"
 }
+
+// Flags
+var (
+	checkFiles      = flag.String("c", "", "optional comma-separated filename(s) to check API against")
+	requireApproval = flag.String("approval", "", "require approvals in comma-separated list of `files`")
+	allowNew        = flag.Bool("allow_new", true, "allow API additions")
+	exceptFile      = flag.String("except", "", "optional filename of packages that are allowed to change without triggering a failure in the tool")
+	nextFiles       = flag.String("next", "", "comma-separated list of `files` for upcoming API features for the next release. These files can be lazily maintained. They only affects the delta warnings from the -c file printed on success.")
+	verbose         = flag.Bool("v", false, "verbose debugging")
+	forceCtx        = flag.String("contexts", "", "optional comma-separated list of <goos>-<goarch>[-cgo] to override default contexts.")
+)
 
 // contexts are the default contexts which are scanned, unless
 // overridden by the -contexts flag.
@@ -109,25 +117,36 @@ func parseContext(c string) *build.Context {
 	return bc
 }
 
+func setContexts() {
+	contexts = []*build.Context{}
+	for _, c := range strings.Split(*forceCtx, ",") {
+		contexts = append(contexts, parseContext(c))
+	}
+}
+
 var internalPkg = regexp.MustCompile(`(^|/)internal($|/)`)
 
 var exitCode = 0
 
-func Check(t *testing.T) {
-	checkFiles, err := filepath.Glob(filepath.Join(testenv.GOROOT(t), "api/go1*.txt"))
-	if err != nil {
-		t.Fatal(err)
+func main() {
+	log.SetPrefix("api: ")
+	log.SetFlags(0)
+	flag.Parse()
+
+	if build.Default.GOROOT == "" {
+		log.Fatalf("GOROOT not found. (If binary was built with -trimpath, $GOROOT must be set.)")
 	}
 
-	var nextFiles []string
-	if strings.Contains(runtime.Version(), "devel") {
-		next, err := filepath.Glob(filepath.Join(testenv.GOROOT(t), "api/next/*.txt"))
-		if err != nil {
-			t.Fatal(err)
+	if !strings.Contains(runtime.Version(), "weekly") && !strings.Contains(runtime.Version(), "devel") {
+		if *nextFiles != "" {
+			fmt.Printf("Go version is %q, ignoring -next %s\n", runtime.Version(), *nextFiles)
+			*nextFiles = ""
 		}
-		nextFiles = next
 	}
 
+	if *forceCtx != "" {
+		setContexts()
+	}
 	for _, c := range contexts {
 		c.Compiler = build.Default.Compiler
 	}
@@ -139,7 +158,7 @@ func Check(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			walkers[i] = NewWalker(context, filepath.Join(testenv.GOROOT(t), "src"))
+			walkers[i] = NewWalker(context, filepath.Join(build.Default.GOROOT, "src"))
 		}()
 	}
 	wg.Wait()
@@ -185,29 +204,40 @@ func Check(t *testing.T) {
 	}
 
 	bw := bufio.NewWriter(os.Stdout)
-	defer bw.Flush()
+	defer func() {
+		bw.Flush()
+		if exitCode != 0 {
+			os.Exit(exitCode)
+		}
+	}()
+
+	if *checkFiles == "" {
+		sort.Strings(features)
+		for _, f := range features {
+			fmt.Fprintln(bw, f)
+		}
+		return
+	}
 
 	var required []string
-	for _, file := range checkFiles {
-		required = append(required, fileFeatures(file, needApproval(file))...)
+	for _, file := range strings.Split(*checkFiles, ",") {
+		required = append(required, fileFeatures(file)...)
 	}
 	var optional []string
-	for _, file := range nextFiles {
-		optional = append(optional, fileFeatures(file, true)...)
+	if *nextFiles != "" {
+		for _, file := range strings.Split(*nextFiles, ",") {
+			optional = append(optional, fileFeatures(file)...)
+		}
 	}
-	exception := fileFeatures(filepath.Join(testenv.GOROOT(t), "api/except.txt"), false)
-
-	if exitCode == 1 {
-		t.Errorf("API database problems found")
-	}
-	if !compareAPI(bw, features, required, optional, exception, false) {
-		t.Errorf("API differences found")
+	exception := fileFeatures(*exceptFile)
+	if !compareAPI(bw, features, required, optional, exception, *allowNew) {
+		exitCode = 1
 	}
 }
 
 // export emits the exported package features.
 func (w *Walker) export(pkg *types.Package) {
-	if verbose {
+	if *verbose {
 		log.Println(pkg)
 	}
 	pop := w.pushScope("pkg " + pkg.Path())
@@ -323,7 +353,17 @@ var aliasReplacer = strings.NewReplacer(
 	"os.PathError", "fs.PathError",
 )
 
-func fileFeatures(filename string, needApproval bool) []string {
+func fileFeatures(filename string) []string {
+	if filename == "" {
+		return nil
+	}
+	needApproval := false
+	for _, name := range strings.Split(*requireApproval, ",") {
+		if filename == name {
+			needApproval = true
+			break
+		}
+	}
 	bs, err := os.ReadFile(filename)
 	if err != nil {
 		log.Fatal(err)
@@ -366,11 +406,6 @@ func fileFeatures(filename string, needApproval bool) []string {
 				exitCode = 1
 			}
 			line = strings.TrimSpace(feature)
-		} else {
-			if strings.Contains(line, " #") {
-				log.Printf("%s:%d: unexpected approval\n", filename, i+1)
-				exitCode = 1
-			}
 		}
 		nonblank = append(nonblank, line)
 	}
@@ -1105,20 +1140,7 @@ func (w *Walker) emitf(format string, args ...any) {
 	}
 	w.features[f] = true
 
-	if verbose {
+	if *verbose {
 		log.Printf("feature: %s", f)
 	}
-}
-
-func needApproval(filename string) bool {
-	name := filepath.Base(filename)
-	if name == "go1.txt" {
-		return false
-	}
-	minor := strings.TrimSuffix(strings.TrimPrefix(name, "go1."), ".txt")
-	n, err := strconv.Atoi(minor)
-	if err != nil {
-		log.Fatalf("unexpected api file: %v", name)
-	}
-	return n >= 19 // started tracking approvals in Go 1.19
 }
