@@ -1,3 +1,5 @@
+> ⚠️ We have **no plans** to maintain our set of fixes for this package, please use the original Go package and implement any changes yourself.
+
 # DiamondCDN fork of Golang
 ## Why have we done this?
 To change some configurations in net/http for our use case.
